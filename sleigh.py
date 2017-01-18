@@ -34,20 +34,35 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 VERSION        v0.0.0
-DATE           17/01/2017
+DATE           18/01/2017
 AUTHORS        TASHIRO
 PYTHON_VERSION v3
 '''
+import pickle
 import select
 import socket
+import time
+
+import schedule
 
 class Sleigh:
 
 	EOF = b'\n\r\t'
 
-	def __init__(self, port):
-		print('Sleigh.__init__')
-		self.sock = socket.socket()
+	def __init__(self, param, method_name, vm_img, port, processing_time_limit=0, max_wait_time=0, check_cycle=60):
+		print('--- Sleigh.__init__')
+		self.param = param 
+		self.vm_img = vm_img
+		self.method_name = method_name
+		self.processing_time_limit = processing_time_limit
+		self.max_wait_time = max_wait_time
+		self.check_cycle = check_cycle
+		self.last_time_checked = time.time()
+		self.active_collaborators = {}
+		self.deactivated_collaborators = {}
+		self.schedule = getattr(schedule.Schedule(param), method_name)()
+		self.still_have_instuctions = True
+		self.sock = socket.socket() 
 		self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 		self.sock.bind(('localhost', port))
 		self.sock.listen(5)
@@ -58,21 +73,19 @@ class Sleigh:
 		self.resp = {}
 
 	def run(self):
-		print('Sleigh.run')
+		print('--- Sleigh.run')
 		try:
 			while 1:
 				events = self.epoll.poll(1)
 				for fileno, event in events:
 					if fileno == self.sock.fileno():
 						conn, addr = self.sock.accept()
-						print('DEBUG: Sleigh.run', addr)
 						conn.setblocking(0)
 						self.epoll.register(conn.fileno(), select.EPOLLIN)
 						self.conns[conn.fileno()] = conn
 						self.req[conn.fileno()] = b''
 					elif event & select.EPOLLIN:
 						self.req[fileno] += self.conns[fileno].recv(1024)
-						print('DEBUG: Sleigh.run.EPOLLIN', self.req[fileno])
 						if Sleigh.EOF in self.req[fileno]:						
 							self.resp[fileno] = self.action(self.req[fileno][:-3], self.conns[fileno])
 							if self.resp[fileno] != None:
@@ -91,35 +104,57 @@ class Sleigh:
 						self.epoll.unregister(fileno)
 						self.conns[fileno].close()
 						del self.conns[fileno]
+				for collaborator in active_collaborators:
+					pass
+				for collaborator in deactivated_collaborators:
+					pass
 		finally:
 			self.epoll.unregister(self.sock.fileno())
 			self.epoll.close()
 			self.sock.close()
 
-	def collaboration_request(self, conn):
-		print('Sleigh.colloboration_request')
+	def new_collaborator(self, conn):
+		print('--- Sleigh.new_collaborator')
+		if self.processing_time_limit:
+			self.active_collaborators[conn.getpeername()] = time.time()
+		else:
+			self.active_collaborators[conn.getpeername()] = 0
+		return '\x42' + self.method_name.encode() + b' ' +  self.vm_img.encode() + Sleigh.EOF
 
-	def descollaboration_request(self, conn):
-		print('Sleigh.descollaboration_request')
+	def ask_to_descollaboration(self, conn):
+		if conn.getpeername() in self.active_collaborators:
+			del self.active_collaborators[conn.getpeername()]
+		elif conn.getpeername() in self.deactivated_collaborators:
+			del self.deactivated_collaborators[conn.getpeername()]
 
 	def instruction_request(self, conn):
-		print('Sleigh.instruction_request')
+		print('--- Sleigh.instruction_request')
+		try:
+			return pickle.dumps(next(self.schedule))
+		except StopIteration:
+			return '\x43' + Sleigh.EOF
 
-	def results(self, conn):
-		# ...
-		#if self.finish:
-			# encerrar o processo do broker
+	def results(self, payload):
+		print('--- Sleigh.results')
+		print(payload)
+		if not self.still_have_instuctions:
+			 input('DEBUG: Todas as instrucoes foram processadas')
 
 	def action(self, msg, conn):
 		print('Sleigh.action')
 		code, payload = msg[:1], msg[1:]
 		if code == b'\x03':
-			return self.collaboration_request(conn)
+			return self.new_collaborator(conn)
 		elif code == b'\x04':
-			return self.descollaboration_request(conn)
+			return self.ask_to_descollaboration(conn)
 		elif code == b'\x05':
 			return self.instruction_request(conn)
+		elif code == b'\x06':
+			return self.results(payload)
 
 if __name__ == '__main__':
-	sleigh = Sleigh(50000)
-	sleigh.run()
+	param = {'param_one': (1, 2, 3), 'param_two': (4, 5, 6), 'param_four': (7, 8, 9)}
+	method_name = 'schedule'
+	vm_img = '655.626.652'
+	Sleigh = Sleigh(param, method_name, vm_img, 50000)
+	Sleigh.run()
