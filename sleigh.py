@@ -104,28 +104,44 @@ class Sleigh:
 						self.epoll.unregister(fileno)
 						self.conns[fileno].close()
 						del self.conns[fileno]
-				for collaborator in active_collaborators:
-					pass
-				for collaborator in deactivated_collaborators:
-					pass
+				actual_time = time.time()
+				if actual_time - self.last_time_checked > self.check_cycle:
+					if self.processing_time_limit != 0:
+						for collaborator in self.active_collaborators:
+							if actual_time - collaborator > self.processing_time_limit:
+								pass # Decidir o que fazer, mesmo para o de baixo
+					if self.max_wait_time != 0:
+						for collaborator in self.deactivated_collaborators:
+							if actual_time - collaborator > self.max_wait_time:
+								pass								
+					self.last_time_checked = actual_time
 		finally:
 			self.epoll.unregister(self.sock.fileno())
 			self.epoll.close()
 			self.sock.close()
 
-	def new_collaborator(self, conn):
+	def new_collaborator(self, msg, conn):
 		print('--- Sleigh.new_collaborator')
+		print(msg)
 		if self.processing_time_limit:
-			self.active_collaborators[conn.getpeername()] = time.time()
+			if msg == b'running':
+				self.active_collaborators[conn.getpeername()] = time.time()
+			else:
+				self.deactivated_collaborators[conn.getpeername()] = time.time()
 		else:
-			self.active_collaborators[conn.getpeername()] = 0
-		return '\x42' + self.method_name.encode() + b' ' +  self.vm_img.encode() + Sleigh.EOF
+			if msg == b'running':
+				self.active_collaborators[conn.getpeername()] = 0
+			else:
+				self.deactivated_collaborators[conn.getpeername()] = 0
+		return b'\x42' + self.method_name.encode() + b' ' +  self.vm_img.encode() + Sleigh.EOF
 
 	def ask_to_descollaboration(self, conn):
+		print('--- Sleigh.ask_to_descollaboration')
 		if conn.getpeername() in self.active_collaborators:
 			del self.active_collaborators[conn.getpeername()]
 		elif conn.getpeername() in self.deactivated_collaborators:
 			del self.deactivated_collaborators[conn.getpeername()]
+		return b'\x43' + b'you were removed from the collaborators list' + Sleigh.EOF
 
 	def instruction_request(self, conn):
 		print('--- Sleigh.instruction_request')
@@ -144,7 +160,7 @@ class Sleigh:
 		print('Sleigh.action')
 		code, payload = msg[:1], msg[1:]
 		if code == b'\x03':
-			return self.new_collaborator(conn)
+			return self.new_collaborator(msg, conn)
 		elif code == b'\x04':
 			return self.ask_to_descollaboration(conn)
 		elif code == b'\x05':
