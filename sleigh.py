@@ -43,14 +43,24 @@ import select
 import socket
 import time
 
+import collaborator
 import schedule
 
 class Sleigh:
-
+	'''
+	TODO: 
+	-Possiveis novas ações:
+		.list_collaborators() - Envia para o pine a lista de colaboradores, associando 
+		 para cada um se esta ativo ou desativo, além do tempo que ficou colaborando.		 
+		.progress() - Retorna o quanto ja foi processado
+	.Possiveis novos metodos:	
+		.setup() - Verifica se todos os parametros passados são validos.
+		.generate_report() - gera as estatisticas pertinentes durante o pŕocessamento 
+		 da aplicação
+	'''	
 	EOF = b'\n\r\t'
 
-	def __init__(self, param, method_name, vm_img, port, processing_time_limit=0, max_wait_time=0, check_cycle=60):
-		print('--- Sleigh.__init__')
+	def __init__(self, param, method_name, vm_img, port, processing_time_limit=0, max_wait_time=0, check_cycle=60, db_address=None):
 		self.param = param 
 		self.vm_img = vm_img
 		self.method_name = method_name
@@ -71,9 +81,9 @@ class Sleigh:
 		self.conns = {}
 		self.req = {}
 		self.resp = {}
+		self.db_address = db_address
 
 	def run(self):
-		print('--- Sleigh.run')
 		try:
 			while 1:
 				events = self.epoll.poll(1)
@@ -107,13 +117,18 @@ class Sleigh:
 				actual_time = time.time()
 				if actual_time - self.last_time_checked > self.check_cycle:
 					if self.processing_time_limit != 0:
-						for collaborator in self.active_collaborators:
-							if actual_time - collaborator > self.processing_time_limit:
-								pass # Decidir o que fazer, mesmo para o de baixo
+						for collaborator in self.active_collaborators.items():
+							if actual_time - collaborator[1].actual_time > self.processing_time_limit:
+								# TODO: Resgatar a instrução e colocar de volta no schedule				
+								self.deactivated_collaborators[collaborator[0]] = collaborator
+								self.deactivated_collaborators[collaborator[0]].actual_time = actual_time
+								del self.active_collaborators[collaborator[0]]
+								self.still_have_instuctions = True
 					if self.max_wait_time != 0:
-						for collaborator in self.deactivated_collaborators:
-							if actual_time - collaborator > self.max_wait_time:
-								pass								
+						for collaborator in self.deactivated_collaborators.items():
+							if actual_time - collaborator[1].actual_time > self.max_wait_time:
+								# TODO: Ver se apenas vai tirar da lista de colaboradores
+								del self.deactivated_collaborators[collaborator[0]]
 					self.last_time_checked = actual_time
 		finally:
 			self.epoll.unregister(self.sock.fileno())
@@ -121,50 +136,110 @@ class Sleigh:
 			self.sock.close()
 
 	def new_collaborator(self, msg, conn):
-		print('--- Sleigh.new_collaborator')
-		print(msg)
-		if self.processing_time_limit:
-			if msg == b'running':
-				self.active_collaborators[conn.getpeername()] = time.time()
-			else:
-				self.deactivated_collaborators[conn.getpeername()] = time.time()
+		'''
+		Um colaborador é uma máquina que vai ajudar no processamento de alguma
+		aplicação.
+
+		1° passo: O pine envia uma requisição para colaborar com essa aplicação.
+
+		2° passo: O sleigh adiciona o endereço do pine na lista de colaboradores
+				  inativos. Caso o sleigh tenha configurado um tempo limite de 
+				  inatividade é associado ao pine o tempo atual, para depois ver 
+				  se esse tempo excedeu o permitido. Se isso acontecer ele é re-
+				  tirado da lista de colaboradores. Senão o valor zero é associ-
+				  ado indicando que não tem um tempo limite.
+
+		3° passo: O sleigh manda uma mensagem para o pine confirmando a requisi-
+				  ção e enviando qual método a aplicação está usando além de qual 
+				  o identificador da imagem da máquina virtual. 
+		'''
+		if self.max_wait_time != 0:
+			self.deactivated_collaborators[conn.getpeername()] = collaborator.Collaborator(time.time())
 		else:
-			if msg == b'running':
-				self.active_collaborators[conn.getpeername()] = 0
-			else:
-				self.deactivated_collaborators[conn.getpeername()] = 0
-		return b'\x42' + self.method_name.encode() + b' ' +  self.vm_img.encode() + Sleigh.EOF
+			self.deactivated_collaborators[conn.getpeername()] = collaborator.Collaborator(0)
+ 		return b'\x42' + self.method_name.encode() + b' ' +  self.vm_img.encode() + Sleigh.EOF
 
 	def ask_to_descollaboration(self, conn):
-		print('--- Sleigh.ask_to_descollaboration')
+		'''
+		1° passo: O pine envia uma requisição para descolaborar com essa aplicação.
+
+		2° passo: O sleigh retira da lista de colaboradores. Caso ele esteja na lis-
+				  ta de colaboradores ativos, sua instrução atual é resgatada para 
+				  posteriormente ser enviada para outro colaborador, então ele é 
+				  retirado da lista de colaboradores. Caso esteja na lista de cola=
+				  boradores desativos, ele é simplismente tirado da lista.
+
+		3° passo: O sleigh manda um feedback confirmando que a ação foi realizada e
+				  ele não mais faz parte da lista de colaboradores.
+		'''
 		if conn.getpeername() in self.active_collaborators:
 			del self.active_collaborators[conn.getpeername()]
 		elif conn.getpeername() in self.deactivated_collaborators:
 			del self.deactivated_collaborators[conn.getpeername()]
-		return b'\x43' + b'you were removed from the collaborators list' + Sleigh.EOF
+		return b'\x43' + Sleigh.EOF
 
-	def instruction_request(self, conn):
-		print('--- Sleigh.instruction_request')
+	def send_gift(self, conn):
+		'''
+		1° passso: Gerar uma nova instrução e serializar ela, permitindo o envio
+				   pela rede. 
+
+		2° passo: Associar essa instrução com o colaborador que solicitou, permi-
+				  tindo resgata-la caso ele não termine de processa-la. Também o
+				  é atualizado o tempo do colaborador.
+
+		3° passo: A instrução é enviada para o colaborador. Caso todas as instu-
+				  ções já foram processadas é enviado uma mensagem avisando este
+				  fato.
+		'''
 		try:
-			return pickle.dumps(next(self.schedule))
+			gift = pickle.dumps(next(self.schedule))
+			if conn.getpeername() in self.deactivated_collaborators:
+				self.active_collaborators[conn.getpeername()] = self.deactivated_collaborators[conn.getpeername()]			
+				self.active_collaborators[conn.getpeername()].actual_time = time.time()
+				self.active_collaborators[conn.getpeername()].gift = gift
+				del self.deactivated_collaborators[conn.getpeername()]
+			return gift			
 		except StopIteration:
+			if conn.getpeername() in self.active_collaborators:
+				del self.active_collaborators[conn.getpeername()]
+				# jogar par lista de desativo
+			self.still_have_instuctions = False
 			return '\x43' + Sleigh.EOF
 
-	def results(self, payload):
-		print('--- Sleigh.results')
-		print(payload)
-		if not self.still_have_instuctions:
-			 input('DEBUG: Todas as instrucoes foram processadas')
+	def results(self, payload, conn):
+		'''
+		1° passo: Adicionar uma nova conexão com o banco de dados e registra na 
+				  poll das conexões para o resultado ser enviado posteriormente.
+
+		*2° passo: Caso as instruções tenham acabado é avisado para cada colabora-
+                   que as instruções acabaram. Então o sleigh é encerrado.
+		'''
+		self.active_collaborators[conn.getpeername()].total_collaboration_time += time.time() - self.active_collaborators[conn.getpeername()].actual_time
+		# jogar para lista dos desativos
+		conn = socket.socket()
+		conn.connect(self.db_address)
+		conn.setblocking(0)
+		self.epoll.register(conn.fileno(), select.EPOLLOUT)
+		self.conns[conn.fileno()] = conn
+		self.resp[conn.fileno()] = payload
+		if not self.still_have_instuctions and len(self.active_collaborators) == 0:
+			for collaborator in self.deactivated_collaborators.items():
+			 	self.conn = socket.socket()
+			 	self.conn.connect(collaborator[0])
+			 	self.conn.setblocking(0)
+				self.epoll.register(conn.fileno(), select.EPOLLOUT)
+				self.conns[conn.fileno()] = conn
+				self.resp[conn.fileno()] = b'\x55' + Sleigh.EOF  # checar melhor esse código
+			 print('Sleigh accomplish its fate. Now it are not longer here.')
 
 	def action(self, msg, conn):
-		print('Sleigh.action')
 		code, payload = msg[:1], msg[1:]
 		if code == b'\x03':
 			return self.new_collaborator(msg, conn)
 		elif code == b'\x04':
 			return self.ask_to_descollaboration(conn)
 		elif code == b'\x05':
-			return self.instruction_request(conn)
+			return self.send_gift(conn)
 		elif code == b'\x06':
 			return self.results(payload)
 
