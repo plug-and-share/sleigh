@@ -57,6 +57,7 @@ class Sleigh:
 		.setup() - Verifica se todos os parametros passados são validos.
 		.generate_report() - gera as estatisticas pertinentes durante o pŕocessamento 
 		 da aplicação
+	.Avisar o Sleigh caso o computador seja desligado
 	'''	
 	EOF = b'\n\r\t'
 
@@ -127,7 +128,6 @@ class Sleigh:
 					if self.max_wait_time != 0:
 						for collaborator in self.deactivated_collaborators.items():
 							if actual_time - collaborator[1].actual_time > self.max_wait_time:
-								# TODO: Ver se apenas vai tirar da lista de colaboradores
 								del self.deactivated_collaborators[collaborator[0]]
 					self.last_time_checked = actual_time
 		finally:
@@ -157,7 +157,7 @@ class Sleigh:
 			self.deactivated_collaborators[conn.getpeername()] = collaborator.Collaborator(time.time())
 		else:
 			self.deactivated_collaborators[conn.getpeername()] = collaborator.Collaborator(0)
- 		return b'\x42' + self.method_name.encode() + b' ' +  self.vm_img.encode() + Sleigh.EOF
+ 		return self.method_name.encode() + b' ' +  self.vm_img.encode() + Sleigh.EOF
 
 	def ask_to_descollaboration(self, conn):
 		'''
