@@ -157,10 +157,16 @@ class Sleigh:
 			self.deactivated_collaborators[conn.getpeername()] = collaborator.Collaborator(time.time())
 		else:
 			self.deactivated_collaborators[conn.getpeername()] = collaborator.Collaborator(0)
- 		return self.method_name.encode() + b' ' +  self.vm_img.encode() + Sleigh.EOF
+		return self.method_name.encode() + b' ' \
+		    +  self.vm_img.encode() + b' '  \
+		    +  str(self.processing_time_limit).encode() + b' ' \
+		    +  str(self.max_wait_time).encode() \
+		    +  Sleigh.EOF
 
-	def ask_to_descollaboration(self, conn):
+	def ask_to_descollaborate(self, conn):
 		'''
+		*Resgatar a instrucao.
+
 		1° passo: O pine envia uma requisição para descolaborar com essa aplicação.
 
 		2° passo: O sleigh retira da lista de colaboradores. Caso ele esteja na lis-
@@ -204,7 +210,7 @@ class Sleigh:
 				del self.active_collaborators[conn.getpeername()]
 				# jogar par lista de desativo
 			self.still_have_instuctions = False
-			return '\x43' + Sleigh.EOF
+			return b'\x43' + Sleigh.EOF
 
 	def results(self, payload, conn):
 		'''
@@ -224,28 +230,30 @@ class Sleigh:
 		self.resp[conn.fileno()] = payload
 		if not self.still_have_instuctions and len(self.active_collaborators) == 0:
 			for collaborator in self.deactivated_collaborators.items():
-			 	self.conn = socket.socket()
-			 	self.conn.connect(collaborator[0])
-			 	self.conn.setblocking(0)
+				self.conn = socket.socket()
+				self.conn.connect(collaborator[0])
+				self.conn.setblocking(0)
 				self.epoll.register(conn.fileno(), select.EPOLLOUT)
 				self.conns[conn.fileno()] = conn
 				self.resp[conn.fileno()] = b'\x55' + Sleigh.EOF  # checar melhor esse código
-			 print('Sleigh accomplish its fate. Now it are not longer here.')
+			print('Sleigh accomplish its fate. Now it are not longer here.')
 
 	def action(self, msg, conn):
 		code, payload = msg[:1], msg[1:]
 		if code == b'\x03':
 			return self.new_collaborator(msg, conn)
 		elif code == b'\x04':
-			return self.ask_to_descollaboration(conn)
+			return self.ask_to_descollaborate(conn)
 		elif code == b'\x05':
 			return self.send_gift(conn)
 		elif code == b'\x06':
 			return self.results(payload)
+		elif code == b'\x07':
+			print('[DEBUG.sleigh.action] Jogo na lista de desativos.')
 
 if __name__ == '__main__':
 	param = {'param_one': (1, 2, 3), 'param_two': (4, 5, 6), 'param_four': (7, 8, 9)}
 	method_name = 'schedule'
 	vm_img = '655.626.652'
-	Sleigh = Sleigh(param, method_name, vm_img, 50000)
-	Sleigh.run()
+	broker = Sleigh(param, method_name, vm_img, 50000)
+	broker.run()

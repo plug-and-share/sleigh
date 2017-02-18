@@ -42,8 +42,7 @@ import itertools
 
 class Schedule:
 	
-	def __init__(self, param):
-		
+	def __init__(self, param):		
 		self.param = param
 
 	def schedule(self):

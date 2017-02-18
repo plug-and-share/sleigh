@@ -41,7 +41,7 @@ PYTHON_VERSION v3
 
 class Collaborator:
 
-	def __init__(self, actual_time)
+	def __init__(self, actual_time):
 		self.actual_time = actual_time
 		self.total_collaboration_time = 0
 		self.gift = None
