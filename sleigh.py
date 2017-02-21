@@ -38,6 +38,7 @@ DATE           18/01/2017
 AUTHORS        TASHIRO
 PYTHON_VERSION v3
 '''
+import codecs
 import pickle
 import select
 import socket
@@ -75,7 +76,7 @@ class Sleigh:
 		self.still_have_instuctions = True
 		self.sock = socket.socket() 
 		self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-		self.sock.bind(('localhost', port))
+		self.sock.bind(('', port))
 		self.sock.listen(5)
 		self.epoll = select.epoll()
 		self.epoll.register(self.sock.fileno(), select.EPOLLIN)
@@ -198,13 +199,14 @@ class Sleigh:
 				  fato.
 		'''
 		try:
-			gift = pickle.dumps(next(self.schedule))
+			gift = codecs.encode(pickle.dumps(next(self.schedule)), 'base64')
 			if conn.getpeername() in self.deactivated_collaborators:
 				self.active_collaborators[conn.getpeername()] = self.deactivated_collaborators[conn.getpeername()]			
 				self.active_collaborators[conn.getpeername()].actual_time = time.time()
 				self.active_collaborators[conn.getpeername()].gift = gift
 				del self.deactivated_collaborators[conn.getpeername()]
-			return gift			
+			print(gift)
+			return b'\x43' + gift + Sleigh.EOF
 		except StopIteration:
 			if conn.getpeername() in self.active_collaborators:
 				del self.active_collaborators[conn.getpeername()]
@@ -220,22 +222,23 @@ class Sleigh:
 		*2° passo: Caso as instruções tenham acabado é avisado para cada colabora-
                    que as instruções acabaram. Então o sleigh é encerrado.
 		'''
-		self.active_collaborators[conn.getpeername()].total_collaboration_time += time.time() - self.active_collaborators[conn.getpeername()].actual_time
+		print(payload, conn)
+		#self.active_collaborators[conn.getpeername()].total_collaboration_time += time.time() - self.active_collaborators[conn.getpeername()].actual_time
 		# jogar para lista dos desativos
-		conn = socket.socket()
-		conn.connect(self.db_address)
-		conn.setblocking(0)
-		self.epoll.register(conn.fileno(), select.EPOLLOUT)
-		self.conns[conn.fileno()] = conn
-		self.resp[conn.fileno()] = payload
+		#conn = socket.socket()
+		#conn.connect(self.db_address)
+		#conn.setblocking(0)
+		#self.epoll.register(conn.fileno(), select.EPOLLOUT)
+		#self.conns[conn.fileno()] = conn
+		#self.resp[conn.fileno()] = payload
 		if not self.still_have_instuctions and len(self.active_collaborators) == 0:
-			for collaborator in self.deactivated_collaborators.items():
-				self.conn = socket.socket()
-				self.conn.connect(collaborator[0])
-				self.conn.setblocking(0)
-				self.epoll.register(conn.fileno(), select.EPOLLOUT)
-				self.conns[conn.fileno()] = conn
-				self.resp[conn.fileno()] = b'\x55' + Sleigh.EOF  # checar melhor esse código
+			#for collaborator in self.deactivated_collaborators.items():
+			#	self.conn = socket.socket()
+			#	self.conn.connect(collaborator[0])
+			#	self.conn.setblocking(0)
+			#	self.epoll.register(conn.fileno(), select.EPOLLOUT)
+			#	self.conns[conn.fileno()] = conn
+			#	self.resp[conn.fileno()] = b'\x55' + Sleigh.EOF  # checar melhor esse código
 			print('Sleigh accomplish its fate. Now it are not longer here.')
 
 	def action(self, msg, conn):
@@ -252,7 +255,7 @@ class Sleigh:
 			print('[DEBUG.sleigh.action] Jogo na lista de desativos.')
 
 if __name__ == '__main__':
-	param = {'param_one': (1, 2, 3), 'param_two': (4, 5, 6), 'param_four': (7, 8, 9)}
+	param = {'n': [i for i in range(500)]}
 	method_name = 'schedule'
 	vm_img = '655.626.652'
 	broker = Sleigh(param, method_name, vm_img, 50000)
