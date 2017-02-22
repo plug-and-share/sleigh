@@ -205,7 +205,7 @@ class Sleigh:
 				self.active_collaborators[conn.getpeername()].actual_time = time.time()
 				self.active_collaborators[conn.getpeername()].gift = gift
 				del self.deactivated_collaborators[conn.getpeername()]
-			print(gift)
+			print('sending instruction to '.format(conn.getpeername()))
 			return b'\x43' + gift + Sleigh.EOF
 		except StopIteration:
 			if conn.getpeername() in self.active_collaborators:
@@ -222,7 +222,7 @@ class Sleigh:
 		*2° passo: Caso as instruções tenham acabado é avisado para cada colabora-
                    que as instruções acabaram. Então o sleigh é encerrado.
 		'''
-		print(payload, conn)
+		print('receiving result from {}'.format(conn.getpeername()))
 		#self.active_collaborators[conn.getpeername()].total_collaboration_time += time.time() - self.active_collaborators[conn.getpeername()].actual_time
 		# jogar para lista dos desativos
 		#conn = socket.socket()
@@ -250,7 +250,7 @@ class Sleigh:
 		elif code == b'\x05':
 			return self.send_gift(conn)
 		elif code == b'\x06':
-			return self.results(payload)
+			return self.results(payload, conn)
 		elif code == b'\x07':
 			print('[DEBUG.sleigh.action] Jogo na lista de desativos.')
 
